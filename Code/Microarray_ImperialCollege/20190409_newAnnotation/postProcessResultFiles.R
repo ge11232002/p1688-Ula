@@ -1,0 +1,73 @@
+# Post process the result files for each gene group
+library(readxl)
+library(TFBSTools)
+library(JASPAR2018)
+library(readr)
+library(dplyr)
+
+# Load annotation
+## Geneappend3.xlsx
+geneGroups <- read_excel("/home/gtan/analysis/p1688-Ula/data/Geneappend3 from ImmPort_downloaded on 2018-02-27.xlsx")
+geneGroups <- split(geneGroups$Symbol, geneGroups$Category)
+
+## TF
+opts <- list()
+opts[["species"]] <- 9606
+opts[["all_versions"]] <- FALSE
+pfmList <- getMatrixSet(JASPAR2018, opts)
+geneGroups$TF <- unname(name(pfmList))
+
+## KEGG
+keggFns <- list.files(path="/home/gtan/analysis/p1688-Ula/data",
+                      pattern="^KEGG.*xlsx$", full.names = TRUE)
+for(keggFn in keggFns){
+  kegg <- read_excel(keggFn)
+  geneGroups[[colnames(kegg)]] <- unname(grep("^>", unlist(kegg), value=TRUE, invert = TRUE))
+}
+
+## REACTOME_TIGHT_JUNCTION_INTERACTIONS.xlsx
+reactomeFns <- list.files(path="/home/gtan/analysis/p1688-Ula/data",
+                          pattern="^REACTOME.*xlsx$", full.names=TRUE)
+for(reactomeFn in reactomeFns){
+  reactome <- read_excel(reactomeFn)
+  geneGroups[[colnames(reactome)]] <- unname(grep("^>", unlist(reactome), value=TRUE, invert = TRUE))
+}
+
+## Lipid
+lipidsGenes <- read_excel("/home/gtan/analysis/p1688-Ula/data/HUGO GENE_LIPID LIKE RECEPTORS_ALL.xlsx")
+geneGroups[["lipidGene"]] <- pull(lipidsGenes)
+
+samples <- c("BAL", "BEC")
+dataRoot <- "/home/gtan/analysis/p1688-Ula/ImperialCollege"
+
+for(sample in samples){
+  message(sample)
+  wdDir <- file.path(dataRoot, paste0(sample, "_", Sys.Date()), "resultsGenesets")
+  dir.create(wdDir)
+  setwd(wdDir)
+
+  exprs <- read_tsv("../exprs_normalised_filtered.tsv")
+  comparisonFns <- c("results_groupAsthmaHDM_DAY14-groupHealthy_DAY14.tsv",
+                     "results_groupAsthmaHDMNeg_DAY14-groupHealthy_DAY14.tsv",
+                     
+                     "results_groupAsthmaHDM_DAY4-groupHealthy_DAY4.tsv",
+                     "results_groupAsthmaHDMNeg_DAY4-groupHealthy_DAY4.tsv",
+                     
+                     "results_groupAsthmaHDM_DAY4-groupAsthmaHDM_DAY14.tsv",
+                     "results_groupAsthmaHDMNeg_DAY4-groupAsthmaHDMNeg_DAY14.tsv",
+                     "results_groupHealthy_DAY4-groupHealthy_DAY14.tsv",
+                     "results_(groupAsthmaHDM_DAY4-groupAsthmaHDM_DAY14)-(groupAsthmaHDMNeg_DAY4-groupAsthmaHDMNeg_DAY14).tsv",
+                     "results_(groupAsthmaHDM_DAY4-groupAsthmaHDM_DAY14)-(groupHealthy_DAY4-groupHealthy_DAY4).tsv",
+                     "results_(groupAsthmaHDMNeg_DAY4-groupAsthmaHDMNeg_DAY14)-(groupHealthy_DAY4-groupHealthy_DAY4).tsv"
+                     )
+  for(i in 1:length(comparisonFns)){
+    resultsComp <- read_tsv(file.path("..", comparisonFns[i]))
+    # ans <- left_join(resultsComp, exprs)
+    ans <- resultsComp
+    for(group in names(geneGroups)){
+      write_tsv(ans[toupper(ans$SYMBOL) %in% toupper(geneGroups[[group]]), ],
+                path=gsub(" ", "", paste0("results_", comparisonFns[i], "_", group, ".txt")))
+    }
+  }
+
+}
